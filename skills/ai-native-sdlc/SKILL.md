@@ -1,6 +1,6 @@
 ---
 name: ai-native-sdlc
-description: "Runs the AI-native software lifecycle from first principles: Intent, Spike, Spec, Guardrails, Plan and Build, Checks, Independent QA, Deploy, Monitor, Outcome Review, Incident, Regression, Prevention, with right-sized human gates and Claude Code hooks. Use whenever the user starts or kicks off a feature, fix, or idea through a process; mentions SDLC, intent doc, spec, spike or prototype, plan mode, REVIEW.md, deploy gates, monitoring bands, incidents, post-mortems, regression evals, or reviewing whether a shipped feature worked or whether a process gate is worth keeping. Pairs with poteto-mode for the build itself."
+description: "Runs the AI-native software lifecycle from first principles: Intent, Spike / Research, Spec, Guardrails, Plan and Build, Checks, Independent QA, Deploy, Monitor, Outcome Review, Incident, Regression, Prevention, with right-sized human gates and Claude Code hooks. Use whenever the user starts or kicks off a feature, fix, or idea through a process; mentions SDLC, intent doc, spec, spike, prototype or research before building, plan mode, REVIEW.md, deploy gates, monitoring bands, incidents, post-mortems, regression evals, or reviewing whether a shipped feature worked or whether a process gate is worth keeping. Pairs with poteto-mode for the build itself."
 ---
 
 # AI-Native SDLC
@@ -28,26 +28,30 @@ State the tier and why. Run only its path. Keep replies to the user short — ti
 
 | Tier | When | Path |
 |---|---|---|
-| **Trivial** | Typo, copy, config value, patch-level dependency bump | Build → Checks → QA → Merge |
-| **Standard** | Bug fix or small feature in one area; need and approach are clear | Intent → Plan & Build → Checks → QA ⇄ Fix → Merge → Deploy |
-| **Exploratory** | High uncertainty: do users want it? Is it feasible, fast, or cheap enough? | Intent → Spike → decide: Standard, Full, or stop |
+| **Trivial** | Typo, copy, a config value that is not a threshold, cutoff, or limit changing what the system decides (a label, colour, or page size is fine), patch-level dependency bump | Build → Checks → QA → Merge |
+| **Standard** | Bug fix or small feature in one area; need and approach are clear | Intent → [Spike / Research, if a research trigger applies] → Plan & Build → Checks → QA ⇄ Fix → Merge → Deploy |
+| **Exploratory** | High uncertainty: do users want it? Is it feasible, fast, or cheap enough? | Intent → Spike / Research → decide: Standard, Full, build smaller, pivot, or stop |
 | **Full** | Cross-cutting, new service, or anything on the escalation list | All stages |
 | **Incident** | Monitoring band breached or production defect | Incident → Regression → Prevention |
 
-**Escalate to Full** when the change touches auth, payments, PII, schema or migrations, public API contracts, or infrastructure. When unsure, choose the higher tier. Exploratory work that touches the escalation list still spikes first, then proceeds as Full.
+**Escalate to Full** when the change touches auth, payments, PII, schema or migrations, public API contracts, or infrastructure. When unsure, choose the higher tier. Exploratory work that touches the escalation list still runs Spike / Research first, then proceeds as Full.
 
-**Locate the current stage from committed artifacts:** no approved intent → Intent · open riskiest assumption → Spike · Full tier without approved spec → Spec · no plan → Plan & Build (Full runs Guardrails first) · PR open → Checks, QA, or Fix · shipped and review date reached → Outcome Review.
+**Research triggers.** Run Spike / Research (evidence mode) before building when any of these hold: the change **sets or moves a threshold, cutoff, or limit that changes what the system decides**; whether it works **can only be judged on real data**; or the intent marks an assumption **high-risk and unvalidated**. A threshold change is never Trivial, however small the diff. "The approach is clear" is exactly when an untested data assumption slips past every gate and surfaces mid-build, where the fix is rework and any threshold it moves looks chosen after seeing the result. Full tier always runs evidence mode; Exploratory runs the mode its question needs and always checks repo prior art first.
+
+**Locate the current stage from committed artifacts:** no approved intent → Intent · open riskiest assumption or research trigger → Spike / Research · Full tier without approved spec → Spec · no plan → Plan & Build (Full runs Guardrails first) · PR open → Checks, QA, or Fix · shipped and review date reached → Outcome Review.
 
 ---
 
 ## The Loop
 
 ```
-Intent → [Spike] → Spec → Guardrails → Plan & Build → Checks → Independent QA ⇄ Fix
+Intent → [Spike / Research] → Spec → Guardrails → Plan & Build → Checks → Independent QA ⇄ Fix
 → Merge → Deploy → Monitor → Outcome Review → keep | iterate | delete
                        ↘ Incident → Regression Test/Eval → Prevention Update → next Build
 Quarterly: Process Review (gate budget)
 ```
+
+`[Spike / Research]` is required on Full, Exploratory, and Standard work with a research trigger; skipped otherwise.
 
 Every artifact is committed. One `<slug>` per work item:
 
@@ -73,13 +77,17 @@ out_of_scope:
 open_questions:
 ```
 
-**First-principles check:** Separate the need from the proposed solution — ask "why" until you reach an outcome. Could we delete, reuse, or configure something instead of building? Which assumption, if wrong, kills the idea? If that assumption is unvalidated, route to Spike.
+**First-principles check:** Separate the need from the proposed solution — ask "why" until you reach an outcome. Could we delete, reuse, or configure something instead of building? Which assumption, if wrong, kills the idea? If that assumption is unvalidated, route to Spike / Research.
 
 **Gate:** Product owner approves and commits.
 
 ---
 
-## 2. Spike — `docs/spikes/<slug>.md` (Exploratory tier)
+## 2. Spike / Research — `docs/spikes/<slug>.md` (Exploratory, Full, Standard with a research trigger)
+
+Two modes, one artifact. Pick by the question: "will it work, will users want it?" → **Prototype**. "Is it already known, and what do real data say?" → **Evidence**. A Full-tier item often needs both.
+
+### Prototype mode
 
 When code is cheap, building a quick throwaway often answers a question faster and more reliably than debating it in a spec.
 
@@ -88,12 +96,44 @@ When code is cheap, building a quick throwaway often answers a question faster a
 - **Keep it disposable:** branch `spike/<slug>`, never merged. Use synthetic or approved data; no production PII.
 - **Record the result:**
   ```
+  date:
   question:
+  prior_art:          # incl. past negative results; always checked first
   method:
   evidence:           # numbers, screenshots, user reactions
-  decision: proceed-standard | proceed-full | pivot | stop
+  decision: proceed-standard | proceed-full | build-smaller | pivot | stop
   learnings_for_spec:
   ```
+
+### Evidence mode
+
+Find out what is already known before designing. Read-only: throwaway probe scripts, no production code. **Time-box it:** hours on Standard, 1–2 days on Full or Exploratory.
+
+- **Data handling** — read-only access to data its owner has approved; no PII, credentials, or secrets in pasted output (redact or summarise, since the record is committed); anything on the escalation list goes through its owner.
+- **Repo prior art first** — `CLAUDE.md` Common Mistakes, existing modules, past specs, and above all past *negative* results. A failed earlier attempt is the most valuable thing research finds.
+- **Outside evidence** — papers, official docs, published methods, with links. "Nothing found" is a result; record it.
+- **Real-data probes, output pasted** — does the data exist and look sane; the method on a case whose answer is already known; a replay of real logged inputs through the proposed logic; the degenerate cases (empty inputs, changed formats or schedules, one-off outliers).
+- **Bars before measuring** — the thresholds the work will be judged on and the result that kills it, fixed here so none is chosen after seeing the numbers.
+- **Record the result:**
+  ```
+  date:
+  question:
+  prior_art:          # incl. past negative results
+  outside_evidence:
+  probes:             # command + pasted (redacted) output
+  bars:               # thresholds, kill criterion, what counts as unmeasurable
+  decision: proceed-standard | proceed-full | build-smaller | pivot | stop
+  ```
+
+A probe that contradicts the intent goes back to the human; it is not quietly designed around.
+
+### Both modes
+
+- A record is **finished** when `decision:` is filled; other fields may stay empty when they don't apply. Dates are ISO (`YYYY-MM-DD`).
+- `build-smaller` returns to Intent with the reduced scope; `pivot` returns to Intent with the new question.
+- A spike decision never moves an item off the escalation list: `proceed-standard` on anything listed there still proceeds as Full.
+- If the repo has no evidence-before-build check yet, add it now (see Guardrails) — at any tier, not only Full.
+- If a bar must change later, the spec (or the plan, on Standard) records the change and why.
 
 **First-principles check:** Does the evidence answer the question, or only suggest an answer? A "stop" is a success — it saved the build.
 
@@ -106,6 +146,8 @@ When code is cheap, building a quick throwaway often answers a question faster a
 Collapse requirements and design into one session, with org policies (security, compliance, UX, brand skills) as live constraints.
 
 ```
+date:
+evidence:             # link to the finished docs/spikes/<slug>.md (always required); bars come from it
 requirements:
 invariants:           # what must always be true, e.g. "a user sees only their tenant's data"
 constraints:          # numbers: latency, volume, cost, consistency
@@ -130,6 +172,7 @@ Turn spec risks into automated checks before code exists. Deliver every change a
 - **`CLAUDE.md`** keeps four sections: `## Build & Test`, `## Architecture`, `## Common Mistakes`, `## Conventions`.
 - **Skills** in `.claude/skills/<name>/SKILL.md` for institutional knowledge.
 - **Hooks** for blocking checks on Claude's tool calls.
+- **An evidence-before-build check:** a repo test that fails when a new spec's `evidence:` links no finished `docs/spikes/` record; when a new plan has no `research_trigger:`, or its trigger is not `none` and it links no finished record; or when a linked record is dated after the spec or plan linking it. A plan with `research_trigger: none` and no spec passes untouched. Add it the first time any work item needs research, whatever its tier. It prevents research happening mid-build, where it becomes rework.
 
 **Each guardrail names the failure it prevents** (a comment or a line in `CLAUDE.md`). That is what makes the quarterly Process Review possible.
 
@@ -158,11 +201,14 @@ Turn spec risks into automated checks before code exists. Deliver every change a
 
 1. **Start in plan mode.** Read the spec (or intent) and propose:
    ```
+   date:
+   research_trigger: none | threshold | real-data | high-risk-assumption | full-tier
+   evidence:         # link to the finished docs/spikes/<slug>.md unless research_trigger is none
    files_to_change: []
    work_order: []
    tests_to_write: []
    risks: []
-   done_when: []     # quantifiable: "all tests pass", "p99 < 300ms on staging"
+   done_when: []     # quantifiable: "all tests pass", "p99 < 300ms on staging"; use the research bars
    ```
 2. The engineer iterates and commits the plan.
 3. Execute each `work_order` item under **poteto-mode** (router picks the playbook; verify against the real artifact before the next item).
@@ -325,8 +371,8 @@ Deliver changes as PRs to this skill and `CLAUDE.md`. Escalation-list gates and 
 ## Governance Rules
 
 1. **No self-approval** — building or fixing sessions never approve their own output.
-2. **Commit chain** — intent → spike → spec → plan → PR → outcome or post-mortem.
-3. **Humans decide** — intent, spike decision, spec, merge, production, outcome.
+2. **Commit chain** — intent → spike / research → spec → plan → PR → outcome or post-mortem.
+3. **Humans decide** — intent, spike / research decision, spec, merge, production, outcome.
 4. **Enforcement as code** — policies live in version control and required checks.
 5. **Separation of duties** — branch protection and named authorizers.
 6. **Transparency** — every invocation logged with identity and timestamp.
@@ -358,7 +404,7 @@ repo/
 | Area | Metric |
 |---|---|
 | Intent | Idea → approved intent time |
-| Spike | % of spikes ending in pivot or stop (cheap learning) |
+| Spike / Research | % ending in pivot, build-smaller or stop (cheap learning); bar changes not recorded in the spec or plan (target 0) |
 | Build | % of PRs merged on first implementation pass |
 | Checks | First-pass CI success rate |
 | QA | Defects caught in QA vs escaped to production |
